@@ -1,0 +1,224 @@
+---
+title: "COMS4721 - HW 3"
+author: "Jeff Hudson (jdh2182)"
+date: "Tuesday, March 31, 2015"
+output: pdf_document
+---
+
+```{r message=FALSE, echo=FALSE}
+rm(list=ls())
+setwd("C:/Users/Jeff.Bernard/Dropbox/QMSS/Machine Learning/dataHW3/")
+library(ggplot2)
+library(reshape2)
+
+set.seed(2015-3-19)
+
+X <- read.csv("X.csv",header=F)
+y <- read.csv("y.csv",header=F)
+
+testset <- 1:183
+
+Xtest <- as.matrix(X[testset,])
+Xtrain <- as.matrix(X[-testset,])
+ytest <- y[testset,]
+ytrain <- y[-testset,]
+rm(list=c("testset","X","y"))
+```
+
+#Part 1
+
+Write a function that samples discrete random variables. You will use this function to implement Step 1 of the boosting algorithm given above. The function should take in a positive integer $n$ and a discrete, $k$-dimensional probability distribution $w$, and return a $1 \times n$ vector $c$, where $c_i \in {1,\ldots,k}$, Prob$(c_i = j|w) = w(j)$ and the entries of $c$ are independent. For a distribution $w = [0.1, 0.2, 0.3, 0.4]$,
+show the histogram of a sample vector $c$ when $n = 100, 200, 300, 400, 500$.
+
+```{r}
+weightedsample <- function(n,w){
+  cdf <- cumsum(w)
+  c <- runif(n)
+  return(sapply(c, function(x) which(x < cdf)[1]))
+}
+```
+  
+```{r echo=FALSE, fig.height=2.5,fig.width=2.3}
+w <- c(.1,.2,.3,.4)
+makeHist <- function(n,w){
+  histdata <- data.frame(x=weightedsample(n,w))
+  histogram <- ggplot(histdata, aes(x=x)) + 
+                geom_histogram(binwidth=1) + 
+                xlim(1,5) + 
+                labs(y="Count", x="Entries of vector c", title=paste0("n = ",n))
+                
+  return(histogram)
+}
+
+makeHist(100,w)
+makeHist(200,w)
+makeHist(300,w)
+makeHist(400,w)
+makeHist(500,w)
+```
+
+#Part 2
+
+1. Implement a boosted version of this Bayes classifier, where class-specific $\pi$ and $\mu$, and shared $Sigma$ are learned on the bootstrap set $B_t$ . Notice that you only need to store $w_0$ and $w$ for this problem, as indicated in the equation above. Since the data already contains a bias dimension, you can store a single "augmented" vector where $w_0$ and $w$ are combined.
+2. On a single plot, show the training and testing error as a function of iteration $t$.  
+```{r echo=FALSE, fig.height=3.5}
+BayesClassifier <- function(X,y){
+  pi1 <- sum(y > 0)/length(y)
+  pi0 <- sum(y < 0)/length(y)
+  mu1 <- colMeans(X[y > 0,-1])
+  mu0 <- colMeans(X[y < 0,-1])
+  sigma <- cov(X[,-1])
+  w0 <- log(pi1/pi0) - ((1/2) * (t(mu1 + mu0) %*% solve(sigma) %*% (mu1 - mu0)))
+  w <- solve(sigma) %*% (mu1 - mu0)
+  return(rbind(w0,w))
+}
+
+AdaBoost <- function(classifier,Xtrain,ytrain,Xtest,ytest,t){
+  wt <- matrix(0,nrow=t,ncol=nrow(Xtrain))
+  wt[1,] <- rep(1/nrow(Xtrain),nrow(Xtrain))
+  errorrate <- data.frame(x=1:t,train=NA,test=NA)
+  trainpred <- matrix(0,nrow=t,ncol=nrow(Xtrain))
+  testpred  <- matrix(0,nrow=t,ncol=nrow(Xtest))
+  at <- rep(0,t)
+  et <- rep(0,t)
+  for(i in 1:t){
+    # get bootstrap sample and train classifier on it
+    Bt <- weightedsample(nrow(Xtrain),wt[i,])
+    w <- classifier(Xtrain[Bt,],ytrain[Bt])
+    
+    # predict classes and record errors
+    pred <- sign(Xtrain %*% w)
+    errs <- which(pred != ytrain)
+    
+    # set epsilon and alpha sub t
+    et[i] <- sum(wt[i,errs])
+    at[i] <- (1/2) * log((1-et[i])/et[i])
+    
+    # update weights
+    if(i==t){}else{
+      wt[i+1,] <- wt[i,] * exp(-1 * at[i] * ytrain * pred)
+      wt[i+1,] <- wt[i+1,]/sum(wt[i+1,])
+    }
+    
+    # predict with new ensemble classifier and record accuracy
+    trainpred[i,] <- at[i] * pred
+    testpred[i,] <- at[i] * sign(Xtest %*% w)
+    
+    if(i==1){
+      enstrainpred <- sign(trainpred[i,])
+      enstestpred  <- sign(testpred[i,])
+    }
+    else{
+      enstrainpred <- sign(colSums(trainpred[1:i,]))
+      enstestpred  <- sign(colSums(testpred[1:i,]))
+    }
+    
+    errorrate[i,"train"] <- sum(enstrainpred != ytrain)/length(ytrain)
+    errorrate[i,"test"] <- sum(enstestpred != ytest)/length(ytest)
+  }
+  
+  meltederrors <- melt(errorrate,id.vars = "x")
+  errorgraph <- ggplot(meltederrors, aes(x=x)) + 
+    geom_line(aes(y=value,color=variable)) +
+    scale_color_manual(values=c("darkred","darkblue")) +
+    labs(x="Iteration",y="Error Rate") +
+    guides(colour=guide_legend(title=""))
+  
+  alphaepsilon <- data.frame(cbind(x=1:t,Alpha=at,Epsilon=et))
+  meltedAE <- melt(alphaepsilon,id.vars="x")
+  atetgraph <- ggplot(meltedAE, aes(x=x)) + 
+    geom_line(aes(y=value,color=variable)) +
+    scale_color_manual(values=c("darkorange","darkgreen")) +
+    labs(x="Iteration",y="Value") +
+    guides(colour=guide_legend(title=""))
+  
+  return(list(ERR=errorgraph,ATET=atetgraph,WT=wt))
+}
+
+BC <- AdaBoost(BayesClassifier,Xtrain,ytrain,Xtest,ytest,1000)
+
+BC[[1]]
+```
+3. Indicate the testing accuracy by learning the Bayes classifier on the training set without boosting.
+```{r echo=FALSE}
+testAcc <- function(classifier){
+  w <- classifier(Xtrain,ytrain)
+  pred <- sign(Xtest %*% w)
+  acc <- sum(pred == ytest)/length(ytest)
+  return(acc*100)
+}
+
+print(paste0("Unboosted Bayes Classifier Accuracy: ",
+             round(testAcc(BayesClassifier),2)))
+```
+4. Plot $\alpha_t$ and $\epsilon_t$ as a function of $t$.  
+```{r echo=FALSE, fig.height=3.5}
+BC[[2]]
+```
+5. Pick 3 data points and plot their corresponding $p_t(i)$ as a function of $t$. Select the points such that there is some variation in these values.  
+```{r echo=FALSE, fig.height=3.5}
+BCweights <- data.frame(cbind(1:1000,BC[[3]]))
+ggplot(BCweights, aes(x=X1)) + 
+  geom_line(aes(y=X4), color="darkred") + 
+  geom_line(aes(y=X10), color="darkblue") +
+  geom_line(aes(y=X230), color="darkgreen") +
+  labs(x="Iteration", y="Probability Weight")
+```
+
+# Part 3
+
+1. Implement the online logistic classifier.
+2. On a single plot, show the training and testing error as a function of iteration $t$.  
+```{r echo=FALSE, fig.height=3.5}
+OLRClassifier <- function(X,y){
+  X <- X[sample.int(nrow(X)),]
+  w <- rep(0,ncol(X))
+  eta <- 1/nrow(X)
+  for(i in 1:nrow(X)){
+    sigmoid <- 1 / (1 + exp(-y[i] * (X[i,] %*% w)))
+    w <- w + (eta * (1 - sigmoid) * y[i] * X[i,]) 
+  }
+  return(w)
+}
+
+LC <- AdaBoost(OLRClassifier,Xtrain,ytrain,Xtest,ytest,1000)
+
+LC[[1]]
+```
+
+3. Indicate the testing accuracy by learning logistic regression model on the training set **without** boosting. You can use the two-class version of your softmax logistic regression code from Homework 2 to do this, or your own implementation of binary logistic regression.  
+
+```{r echo=FALSE}
+BinaryLogisticRegressionClassifier <- function(X,y){
+  t <- 501
+  w <- matrix(0,nrow=ncol(X))
+  eta <- .01
+  for(i in 1:t){
+    sigmoid <- 1 / (1 + exp(-y * (X %*% w)))
+    step <- eta * (t(1 - sigmoid) %*% (y * X))
+    w <- w + t(step)
+  }
+  return(w)
+}
+
+print(paste0("Unboosted Binary Logistic Regression Accuracy: ",
+             round(testAcc(BinaryLogisticRegressionClassifier),2)))
+```
+
+4. Plot $\alpha_t$ and $\epsilon_t$ as a function of $t$.  
+```{r echo=FALSE, fig.height=3.5}
+LC[[2]]
+```
+5. Pick 3 data points and plot their corresponding $p_t(i)$ as a function of $t$. Select the points such that there is some variation in these values.  
+```{r echo=FALSE, fig.height=3.5}
+LCweights <- data.frame(cbind(1:1000,LC[[3]]))
+ggplot(LCweights, aes(x=X1)) + 
+  geom_line(aes(y=X32), color="darkred") + 
+  geom_line(aes(y=X451), color="darkblue") +
+  geom_line(aes(y=X230), color="darkgreen") +
+  labs(x="Iteration", y="Probability Weight")
+```
+
+
+
+

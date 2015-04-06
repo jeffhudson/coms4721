@@ -1,0 +1,370 @@
+---
+title: "COMS4721 HW2"
+author: "Jeff Hudson (jdh2182)"
+date: "Friday, February 20, 2015"
+header-includes: \usepackage{bbm}
+output: pdf_document
+---
+
+
+**Problem 1 (multiclass logistic regression)** - 15 points
+
+Logistic regression with more than two classes can be done using the softmax function. For data $x \in \mathbb{R}^d$ and $k$ classes (where class $i$ has regression vector $w_i$) the class of $x$, denoted by $y$, follows the probability distribution
+$$P(y|x, w_1,\ldots, w_k) = \prod_{i=1}^k \left(\frac{e^{x^T w_i}}{\sum_{j=1}^k e^{x^T w_j}}\right)^{\mathbbm{1}(y=i)}$$
+
+1. Write out the log likelihood $\mathcal{L}$ of data $(x_1, y_1),\ldots,(x_n, y_n)$ using an i.i.d. assumption.
+
+Joint Likelihood $$= \prod_{l=1}^n \prod_{i=1}^k \left(\frac{e^{x_l^T w_i}}{\sum_{j=1}^k e^{x_l^T w_j}}\right)^{\mathbbm{1}(y_l=i)}$$
+Log Likelihood $$= \sum_{l=1}^n \sum_{i=1}^k \mathbbm{1}(y_l=i)[\log e^{x_l^T w_i} - \log\sum_{j=1}^k e^{x_l^T w_j}]$$  
+$$= \sum_{l=1}^n \sum_{i=1}^k [x_l^T w_i - \log\sum_{j=1}^k e^{x_l^T w_j}]\mathbbm{1}(y=i)$$
+
+2. Calculate $\nabla_{w_i}\mathcal{L}$ and $\nabla^2_{w_i}\mathcal{L}$
+
+$$\nabla_{w_i}\mathcal{L} = \sum_{l=1}^n \Big[x_l^T - \frac{1}{\sum_{j=1}^k e^{x_l^T w_j}} \times e^{x_l^T w_i} \times x_l^T\Big]\mathbbm{1}(y_l=i)$$
+$$= \sum_{l=1}^n x_l^T\Big[1 - \frac{e^{x_l^T w_i}}{\sum_{j=1}^k e^{x_l^T w_j}}\Big]\mathbbm{1}(y_l=i)$$
+
+**Problem 2 (Gaussian kernels)** - 15 points
+
+We saw how we can construct a kernel between two points $u, v \in \mathbb{R}^d$ using the dot product (or integral) of their high-dimensional mappings $\phi(u)$ and $\phi(v)$. In the integral case, $$k(u,v) =\int_{\mathcal{R}^d} \phi_t(u)\phi_t(v)dt$$, where $t$ is some parameter that is integrated out. Show that the mapping $$\phi_t(u) = \frac{1}{(2\pi\beta')^{d/2}} \exp \left\{-\frac{\|u-t\|^2}{2\beta'} \right\}$$ reproduces the Gaussian kernel $k(u,v) = \alpha \exp \left\{-\frac{\|u-v\|^2}{\beta}\right\}$ for an appropriate setting of $\alpha$ and $\beta$.  
+_Hint_: This will be very difficult to do without using properties of multivariate Gaussians and their marginal distributions to draw some necessary conclusions. Try framing this as a probability question.
+
+$$k(u,v) =\int_{\mathcal{R}^d} \phi_t(u)\phi_t(v)dt $$
+$$= \int_{\mathcal{R}^d} \frac{1}{(2\pi\beta')^{d/2}} \exp \left\{-\frac{\|u-t\|^2}{2\beta'} \right\}\frac{1}{(2\pi\beta')^{d/2}} \exp \left\{-\frac{\|v-t\|^2}{2\beta'} \right\}dt$$
+$$= \frac{1}{(2\pi\beta')^{d}} \int_{\mathcal{R}^d} \exp \left\{-\frac{\|u-t\|^2+\|v-t\|^2}{2\beta'} \right\}dt$$
+$$= \frac{1}{(2\pi\beta')^{d}} \int_{\mathcal{R}^d} \exp \left\{-\frac{\|u\|^2-2u^Tt+\|v\|^2-2v^Tt+2\|t\|^2}{2\beta'} \right\}dt$$
+$$= \ldots\{\|u\|^2+\|v\|^2-2(u+v)^Tt+2\|t\|^2\}\ldots$$
+
+Once we separate out the terms that depend on $t$, we can normalize that as its own Gaussian which will integrate to 1, then all we'll be left with is the kernel function dependent on $u$ and $v$.
+  
+  
+**Problem 3 (Classification)** - 70 points
+
+In this problem you will implement three classifiers and run them on the MNIST Handwritten Digits data set posted on Courseworks and the class website. Do not do preprocessing to the data other than what is indicated at the end of the README below. The three classifiers must be implemented by you to receive full credit. Information about the data is given at the end of the assignment.
+
+All three sub-problems ask for you to show your results in a 10 × 10 "confusion matrix" (call it $C$). This can be done as follows: For each of the 500 predictions you make from the test set, let $y_t$ be the true class label and $y_p$ be the predicted class label using your algorithm. Update $C(y_t, y_p) \leftarrow C(y_t, y_p) + 1$ for each prediction. At the end, $C$ should sum to 500 and each row should sum to 50. ($C$ can then be normalized, but leave it unnormalized for this assignment.)
+
+_Problem 3a_ (15 points) :  
+
+  - Implement the $k$-NN classifier for $k = 1, 2, 3, 4, 5$.
+  
+  - For each $k$ calculate the confusion matrix and show the trace of this matrix divided by 500. This is the prediction accuracy. You don't need to show the confusion matrix.
+  
+```{r, echo=FALSE, message=FALSE}
+rm(list=ls())
+setwd("C:/Users/Jeff.Bernard/Dropbox/QMSS/Machine Learning/dataHW2")
+library(magrittr)
+library(ggplot2)
+
+Xtrain <- as.matrix(read.csv("Xtrain.txt",header=F))
+Xtest <- as.matrix(read.csv("Xtest.txt",header=F))
+label_train <- as.matrix(read.csv("label_train.txt",header=F))
+label_test <- as.matrix(read.csv("label_test.txt",header=F))
+Q <- as.matrix(read.csv("Q.txt",header=F))
+
+vote <- function(x) {
+  ux <- unique(x)
+  counts <- tabulate(match(x, ux))
+  winner <- sample(which(counts == max(counts)),1)  
+  return(ux[winner])
+}
+
+getDists <- function(test) {
+  results <- Xtrain
+  results %<>%
+    sweep(2,Xtest[test,]) %>%
+    .^2 %>%
+    rowSums() %>%
+    sqrt()
+  return(results)
+}
+
+getKNN <- function(test, k){
+  dists <- getDists(test)
+  neighbors <- head(sort.list(dists),k)
+  winner <- vote(label_train[neighbors,])
+  return(winner)
+}
+
+testAcc <- function(k){
+  preds <- sapply(1:500, function(x) getKNN(x,k))
+  return(sum(preds == label_test)/500)
+}
+
+tbl <- cbind(1:5,sapply(1:5,testAcc))
+dimnames(tbl) <- list(rep("", 5),c("k=","Accuracy"))
+print(tbl)
+
+```
+  
+  - For $k$ = 1, 3, 5, show three misclassified examples and indicate the true class and the predicted class for each one (see the README below).
+
+
+**k=1**  
+\setlength{\tabcolsep}{0.52in}
+\begin{tabular}{l l l}
+True Class: 3       & True Class: 6       & True Class: 9  \\
+Predicted Class: 5  & Predicted Class: 2  & Predicted Class: 4
+\end{tabular}
+```{r echo=FALSE, fig.width = 2.1, fig.height = 1.15}
+getImage <- function(x){
+  par(mai=c(0.1,0.1,0.1,0.1), pin=c(1,1))
+  image(matrix(Q %*% x, nrow=28, ncol=28)[,28:1], 
+        axes=F, col=grey(seq(1,0,length=256)))
+}
+
+getImage(Xtest[172,])
+getImage(Xtest[318,])
+getImage(Xtest[487,])
+```
+
+**k=3**
+\begin{tabular}{l l l}
+True Class: 2       & True Class: 3       & True Class: 8  \\
+Predicted Class: 3  & Predicted Class: 8  & Predicted Class: 5
+\end{tabular}
+```{r echo=FALSE, fig.width = 2.1, fig.height = 1.15}
+getImage(Xtest[103,])
+getImage(Xtest[165,])
+getImage(Xtest[403,])
+```
+
+**k=5**
+\begin{tabular}{l l l}
+True Class: 2       & True Class: 4       & True Class: 6  \\
+Predicted Class: 8  & Predicted Class: 9  & Predicted Class: 4
+\end{tabular}
+```{r echo=FALSE, fig.width = 2.1, fig.height = 1.15}
+getImage(Xtest[104,])
+getImage(Xtest[220,])
+getImage(Xtest[315,])
+```
+
+_Problem 3b_ (25 points) :  
+
+  - Implement the Bayes classifier using multivariate Gaussian distributions as the generative distribution for the data in each class.
+
+```{r echo=FALSE}
+getMeans <- function(class){
+  return(colMeans(Xtrain[label_train == class,]))
+}
+getCovMatrix <- function(class){
+  return(cov(Xtrain[label_train == class,],Xtrain[label_train == class,]))
+}
+
+getClassProbability <- function(index,class,means,covs){
+  xminusmu <- Xtest[index,] - means[class,]
+  covinv <- solve(covs[[class]])
+  CP <- exp(-.5*(t(xminusmu) %*% covinv %*% xminusmu))/sqrt(det(covs[[class]]))
+  return(CP)
+}
+
+BayesClassifier <- function(){
+  means <- t(sapply(0:9,getMeans))
+  covs <- lapply(0:9,getCovMatrix)
+  acc <- 0
+  conf <- matrix(0,nrow=10,ncol=10)
+  for(j in 1:500){
+    test <- vector("numeric",10)
+    for(i in 1:10){
+      test[i] <- getClassProbability(j,i,means,covs)
+    }
+    pred <- which.max(test)
+    real <- label_test[j]+1
+    conf[real,pred] <- conf[real,pred] + 1
+    if(pred == real){
+      acc <- acc + 1
+    }
+  }
+  dimnames(conf) <- list(0:9,0:9)
+  return(list("Confusion Matrix"=conf,"Prediction Accuracy"=acc/500))
+}
+```
+
+  - Derive the maximum likelihood estimate for the 10-dimensional distribution on classes and the Gaussian parameters for a particular class $j$ that you will need for this problem.
+
+  - Show the confusion matrix in a table. As in Problem 3a, indicate the prediction accuracy by summing along the diagonal and dividing by 500.
+  
+```{r echo=FALSE}
+BayesClassifier()
+```
+  
+  - Show the mean of each Gaussian as an image using the provided Q matrix (see the README).
+
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+BayesMeans <- t(sapply(0:9,getMeans))
+getImage(BayesMeans[1,])
+getImage(BayesMeans[2,])
+getImage(BayesMeans[3,])
+getImage(BayesMeans[4,])
+getImage(BayesMeans[5,])
+```
+  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(BayesMeans[6,])
+getImage(BayesMeans[7,])
+getImage(BayesMeans[8,])
+getImage(BayesMeans[9,])
+getImage(BayesMeans[10,])
+```
+  
+  - Show three misclassified examples and show the probability distribution on the 10 digits learned by the Bayes classifier for each one.
+  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+BayesErrors <- function(){
+  means <- t(sapply(0:9,getMeans))
+  covs <- lapply(0:9,getCovMatrix)
+  posteriors <- matrix(0,nrow=500,ncol=10)
+  for(j in 1:500){
+    for(i in 1:10){
+      posteriors[j,i] <- getClassProbability(j,i,means,covs)
+    }
+  }
+  real <- label_test+1
+  pred <- apply(posteriors,1,which.max)
+  return(which(pred != real))
+}
+BayesPosteriors <- function(){
+  means <- t(sapply(0:9,getMeans))
+  covs <- lapply(0:9,getCovMatrix)
+  posteriors <- matrix(0,nrow=500,ncol=10)
+  for(j in 1:500){
+    for(i in 1:10){
+      posteriors[j,i] <- getClassProbability(j,i,means,covs)
+    }
+  }
+  real <- label_test+1
+  pred <- apply(posteriors,1,which.max)
+  return(posteriors)
+}
+post <- BayesPosteriors()
+```
+True Class: 0  
+Predicted Class: 3  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(Xtest[11,])
+dig1 <- cbind(0:9,round(post[11,]/sum(post[11,]),6))
+dimnames(dig1) <- list(rep("", 10),c("Digit","Probability"))
+dig1
+```
+True Class: 1  
+Predicted Class: 8  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(Xtest[85,])
+dig2 <- cbind(0:9,round(post[85,]/sum(post[85,]),6))
+dimnames(dig2) <- list(rep("", 10),c("Digit","Probability"))
+dig2
+```
+True Class: 5  
+Predicted Class: 9  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(Xtest[280,])
+dig3 <- cbind(0:9,round(post[280,]/sum(post[280,]),6))
+dimnames(dig3) <- list(rep("", 10),c("Digit","Probability"))
+dig3
+```
+
+_Problem 3c_ (30 points) :  
+
+  - Implement the multiclass logistic regression classifier you derived in Problem 1. You only need to use $\nabla_w\mathcal{L}$ to satisfy the requirements of this problem. In this case, you might want try a stepsize on the order of $\rho$ = 0.1/5000.
+  
+```{r echo=FALSE}
+getGradient <- function(w,class,X){
+  Xclass <- X[label_train == class,]
+  wclass <- w[class+1,]
+  num <- exp(Xclass %*% wclass)
+  denom <- rowSums(exp(Xclass %*% t(w)))
+  weights <- (1 - num/denom)
+  gradient <- t(Xclass) %*% weights
+  return(gradient)
+}
+
+SoftmaxClassifier <- function(){
+  w <- matrix(0,nrow=10,ncol=21)
+  Xtrain <- cbind(1,Xtrain)
+  Xtest <- cbind(1,Xtest)
+  eta <- 0.1/5000
+  L <- rep(0,1000)
+  for(i in 1:1000){
+    gradient <- t(sapply(0:9, function(class) getGradient(w,class,Xtrain)))
+    w <- w + (eta * gradient)
+    L[i] <- sum(sapply(0:9, function(x) sum(Xtrain[label_train==x,] %*% w[x+1,]) - 
+                      sum(log(rowSums(exp(Xtrain[label_train==x,] %*% t(w)))))))
+  }
+  acc <- 0
+  conf <- matrix(0,nrow=10,ncol=10)
+  for(j in 1:500){
+    test <- sapply(1:10, function(y) Xtest[j,] %*% w[y,])  
+    pred <- which.max(test)
+    real <- label_test[j]+1
+    conf[real,pred] <- conf[real,pred] + 1
+    if(pred == real){
+      acc <- acc + 1
+    }
+  }  
+  dimnames(conf) <- list(0:9,0:9)
+  return(list("L"=L,"Confusion Matrix"=conf,"Prediction Accuracy"=acc/500))
+}
+
+out<-SoftmaxClassifier()
+
+```
+  
+  - For each cycle through $w_0,\ldots, w_9$, calculate $\mathcal{L}$ (see Problem 1) and plot as a function of iteration.  
+Run your algorithm for 1000 iterations.
+
+```{r echo=FALSE, fig.width = 6, fig.height = 4}
+qplot(x=1:1000,y=out$L,xlab="Iteration",ylab="Log Likelihood",main="Log Likelihood as a function of iteration")
+```
+
+  - Show the confusion matrix in a table. Indicate the prediction accuracy by summing along the diagonal and dividing by 500.
+
+```{r echo=FALSE}
+out[2]
+out[3]
+```
+
+  - Show three misclassified examples and show the probability distribution on the 10 digits learned by the softmax function for each one.
+```{r echo=FALSE}
+SoftmaxProbabilities <- function(){
+  w <- matrix(0,nrow=10,ncol=21)
+  Xtrn <- cbind(1,Xtrain)
+  Xtst <- cbind(1,Xtest)
+  eta <- 0.1/5000
+  L <- rep(0,1000)
+  for(i in 1:1000){
+    gradient <- t(sapply(0:9, function(class) getGradient(w,class,Xtrn)))
+    w <- w + (eta * gradient)
+    L[i] <- sum(sapply(0:9, function(x) sum(Xtrn[label_train==x,] %*% w[x+1,]) - 
+                         sum(log(rowSums(exp(Xtrn[label_train==x,] %*% t(w)))))))
+  }
+  test <- t(sapply(1:500, function(j) sapply(1:10, function(y) Xtst[j,] %*% w[y,])))
+  test %<>% divide_by(rowSums(test))
+  return(test)
+}
+probs <- SoftmaxProbabilities()
+```
+True Class: 0  
+Predicted Class: 6  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(Xtest[20,])
+dig1 <- cbind(0:9,round(probs[20,]/sum(probs[20,]),6))
+dimnames(dig1) <- list(rep("", 10),c("Digit","Probability"))
+dig1
+```
+True Class: 4  
+Predicted Class: 5  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(Xtest[206,])
+dig1 <- cbind(0:9,round(probs[206,]/sum(probs[206,]),6))
+dimnames(dig1) <- list(rep("", 10),c("Digit","Probability"))
+dig1
+```
+True Class: 7  
+Predicted Class: 8  
+```{r echo=FALSE, fig.width=1.25, fig.height=1.1}
+getImage(Xtest[357,])
+dig1 <- cbind(0:9,round(probs[357,]/sum(probs[357,]),6))
+dimnames(dig1) <- list(rep("", 10),c("Digit","Probability"))
+dig1
+```
+
